@@ -22,7 +22,7 @@
  * @file
  * simple media player based on the FFmpeg libraries
  */
-
+#include "ffplay.h"
 #include "config.h"
 #include <inttypes.h>
 #include <math.h>
@@ -338,6 +338,22 @@ static AVPacket flush_pkt;
 #define FF_QUIT_EVENT    (SDL_USEREVENT + 2)
 
 static SDL_Surface *screen;
+
+unsigned char eecm[COLOR_SPACE_SIZE][3];
+static inline void readBinaryEECMData(void) {
+	unsigned char buffer[3];
+	FILE *pFile;
+	pFile = fopen("map.dat", "r+b");
+
+	for (int i = 0; i < COLOR_SPACE_SIZE; i++) {
+		fread(buffer, 1, 3, pFile);
+		for (int j = 0; j < 3; j++) {
+			eecm[i][j] = buffer[j];
+		}
+	}
+
+	fclose(pFile);
+}
 
 static inline
 int cmp_audio_fmts(enum AVSampleFormat fmt1, int64_t channel_count1,
@@ -3512,6 +3528,8 @@ int main(int argc, char **argv)
     int flags;
     VideoState *is;
     char dummy_videodriver[] = "SDL_VIDEODRIVER=dummy";
+
+	readBinaryEECMData();
 
     av_log_set_flags(AV_LOG_SKIP_REPEATED);
     parse_loglevel(argc, argv, options);

@@ -25,6 +25,10 @@
  * MPEG-1/2 decoder
  */
 
+#include "../ffplay.h"
+#include "simple_idct.h"
+#include "dct.h"
+
 #include "libavutil/attributes.h"
 #include "libavutil/internal.h"
 #include "internal.h"
@@ -38,6 +42,9 @@
 #include "vdpau_internal.h"
 #include "xvmc_internal.h"
 #include "thread.h"
+
+int a = 0;
+unsigned char eecm[COLOR_SPACE_SIZE][3];
 
 typedef struct Mpeg1Context {
     MpegEncContext mpeg_enc_ctx;
@@ -644,6 +651,10 @@ static inline int mpeg2_fast_decode_block_intra(MpegEncContext *s, int16_t *bloc
 /******************************************/
 /* decoding */
 
+static inline void convert_mb(int16_t **mb) {
+
+}
+
 static inline int get_dmv(MpegEncContext *s)
 {
     if (get_bits1(&s->gb))
@@ -677,9 +688,29 @@ static void exchange_uv(MpegEncContext *s)
 #define MT_16X8  2
 #define MT_DMV   3
 
+static inline void yuv2rgb(uint8_t *out, int Y, int U, int V)
+{
+	int C = Y - 16;
+	int D = U - 128;
+	int E = V - 128;
+
+	out[0] = av_clip_uint8((298 * C           + 409 * E + 128) >> 8);
+	out[1] = av_clip_uint8((298 * C - 100 * D - 208 * E + 128) >> 8);
+	out[2] = av_clip_uint8((298 * C + 516 * D           + 128) >> 8);
+}
+
+static inline void rgb2yuv(uint8_t *out, int R, int G, int B)
+{
+	out[0] = (( 66 * R + 129 * G +  25 * B + 128) >> 8) +  16;
+	out[1] = ((-38 * R -  74 * G + 112 * B + 128) >> 8) + 128;
+	out[2] = ((112 * R -  94 * G -  18 * B + 128) >> 8) + 128;
+}
+
 static int mpeg_decode_mb(MpegEncContext *s, int16_t block[12][64])
 {
-    int i, j, k, cbp, val, mb_type, motion_type;
+	int16_t **idcted_blks;
+
+	int i, j, k, cbp, val, mb_type, motion_type;
     const int mb_block_count = 4 + (1 << s->chroma_format);
 
     av_dlog(s->avctx, "decode_mb: x=%d y=%d\n", s->mb_x, s->mb_y);
@@ -798,6 +829,79 @@ static int mpeg_decode_mb(MpegEncContext *s, int16_t block[12][64])
                     return -1;
             }
         }
+
+        idcted_blks = malloc(sizeof(int16_t *) * mb_block_count);
+        for (i = 0; i < mb_block_count; i++) {
+        	idcted_blks[i] = malloc(sizeof(int16_t) * 64);
+        	memcpy(idcted_blks[i], *s->pblocks[i], sizeof(int16_t) * 64);
+        	ff_simple_idct_mmx(idcted_blks[i]);
+        }
+
+        if (mb_block_count == 6) {
+        	uint8_t rgb[4][3];
+        	uint8_t yuv[4][3];
+        	int colorIdx;
+        	for (i = 0; i < 4; i++) { // 4 Y block
+				for (int iy = 0; iy < 4; iy++) {
+					for (int ix = 0; ix < 4; ix++) {
+						int qpel_x = i % 2 * 4 + ix; // X position in U, V block
+						int qpel_y = i / 2 * 4 + iy; // Y position in U, V block
+						int qpel = qpel_y * 8 + qpel_x;
+
+						for (j = 0; j < 4; j++) { // 4 pixel in 1 qpel
+							int pel_x = ix * 2 + j % 2;
+							int pel_y = iy * 2 + j / 2;
+							int pel = pel_y * 8 + pel_x;
+
+							yuv2rgb(rgb[j], idcted_blks[i][pel], idcted_blks[4][qpel], idcted_blks[5][qpel]);
+
+							colorIdx = rgb[j][0] * 256 * 256 + rgb[j][1] * 256 + rgb[j][2];
+							for (k = 0; k < 3; k++)
+								rgb[j][k] = eecm[colorIdx][k];
+
+							rgb2yuv(yuv[j], rgb[j][0], rgb[j][1], rgb[j][2]);
+
+							idcted_blks[i][pel] = yuv[j][0];
+						}
+
+						idcted_blks[4][qpel] = (yuv[0][1] + yuv[1][1] + yuv[2][1] + yuv[3][1]) >> 2;
+						idcted_blks[5][qpel] = (yuv[0][2] + yuv[1][2] + yuv[2][2] + yuv[3][2]) >> 2;
+					}
+				}
+        	}
+        }
+
+        for (i = 0; i < mb_block_count; i++) {
+            ff_fdct_mmx(idcted_blks[i]);
+            memcpy(*s->pblocks[i], idcted_blks[i], sizeof(int16_t) * 64);
+        }
+
+        if (a == 0) {
+			for (i = 0; i < mb_block_count; i++) {
+				av_log(NULL, AV_LOG_INFO, "\n");
+				for (int r = 0; r < 8; r++) {
+					for (int c = 0; c < 8; c++) {
+						av_log(NULL, AV_LOG_INFO, "%d ", idcted_blks[i][r * 8 + c]);
+					}
+					av_log(NULL, AV_LOG_INFO, "\n");
+				}
+			}
+			a = 1;
+		}
+
+        if (a == 1) {
+			for (i = 0; i < mb_block_count; i++) {
+				av_log(NULL, AV_LOG_INFO, "\n");
+				for (int r = 0; r < 8; r++) {
+					for (int c = 0; c < 8; c++) {
+						av_log(NULL, AV_LOG_INFO, "%d ", (*s->pblocks[i])[r * 8 + c]);
+					}
+					av_log(NULL, AV_LOG_INFO, "\n");
+				}
+			}
+			a = 2;
+		}
+
     } else {
         if (mb_type & MB_TYPE_ZERO_MV) {
             av_assert2(mb_type & MB_TYPE_CBP);
