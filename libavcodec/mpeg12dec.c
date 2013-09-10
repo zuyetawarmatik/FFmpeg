@@ -651,10 +651,6 @@ static inline int mpeg2_fast_decode_block_intra(MpegEncContext *s, int16_t *bloc
 /******************************************/
 /* decoding */
 
-static inline void convert_mb(int16_t **mb) {
-
-}
-
 static inline int get_dmv(MpegEncContext *s)
 {
     if (get_bits1(&s->gb))
@@ -872,36 +868,17 @@ static int mpeg_decode_mb(MpegEncContext *s, int16_t block[12][64])
         }
 
         for (i = 0; i < mb_block_count; i++) {
-            ff_fdct_mmx(idcted_blks[i]);
+        	ff_fdct_mmx(idcted_blks[i]);
+        	if (s->dct_error_sum)
+        		s->denoise_dct(s, idcted_blks[i]);
+        	for (int j = 0; j < 64; j++) idcted_blks[i][j] >>= 3;
+        	if (s->dsp.idct_permutation_type != FF_NO_IDCT_PERM)
+        		ff_block_permute(idcted_blks[i], s->dsp.idct_permutation, s->intra_scantable.scantable, 63);
             memcpy(*s->pblocks[i], idcted_blks[i], sizeof(int16_t) * 64);
+            free(idcted_blks[i]);
         }
 
-        if (a == 0) {
-			for (i = 0; i < mb_block_count; i++) {
-				av_log(NULL, AV_LOG_INFO, "\n");
-				for (int r = 0; r < 8; r++) {
-					for (int c = 0; c < 8; c++) {
-						av_log(NULL, AV_LOG_INFO, "%d ", idcted_blks[i][r * 8 + c]);
-					}
-					av_log(NULL, AV_LOG_INFO, "\n");
-				}
-			}
-			a = 1;
-		}
-
-        if (a == 1) {
-			for (i = 0; i < mb_block_count; i++) {
-				av_log(NULL, AV_LOG_INFO, "\n");
-				for (int r = 0; r < 8; r++) {
-					for (int c = 0; c < 8; c++) {
-						av_log(NULL, AV_LOG_INFO, "%d ", (*s->pblocks[i])[r * 8 + c]);
-					}
-					av_log(NULL, AV_LOG_INFO, "\n");
-				}
-			}
-			a = 2;
-		}
-
+        free(idcted_blks);
     } else {
         if (mb_type & MB_TYPE_ZERO_MV) {
             av_assert2(mb_type & MB_TYPE_CBP);
