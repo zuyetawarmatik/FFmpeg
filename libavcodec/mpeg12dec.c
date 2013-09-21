@@ -43,7 +43,6 @@
 #include "xvmc_internal.h"
 #include "thread.h"
 
-int a = 0;
 unsigned char eecm[COLOR_SPACE_SIZE][3];
 
 typedef struct Mpeg1Context {
@@ -702,10 +701,72 @@ static inline void rgb2yuv(uint8_t *out, int R, int G, int B)
 	out[2] = ((112 * R -  94 * G -  18 * B + 128) >> 8) + 128;
 }
 
+static inline void eecm_map_mb(MpegEncContext *s) {
+	int i, j, k;
+	int16_t **idcted_blks;
+	uint8_t rgb[3];
+	uint8_t yuv[4][3];
+	int colorIdx;
+
+	const int mb_block_count = 4 + (1 << s->chroma_format);
+
+	idcted_blks = malloc(sizeof(int16_t *) * mb_block_count);
+	for (i = 0; i < mb_block_count; i++) {
+		idcted_blks[i] = malloc(sizeof(int16_t) * 64);
+		if (s->dsp.idct_permutation_type != FF_NO_IDCT_PERM)
+			ff_block_permute(idcted_blks[i], s->dsp.idct_permutation, s->intra_scantable.scantable, 63);
+		memcpy(idcted_blks[i], *s->pblocks[i], sizeof(int16_t) * 64);
+		ff_simple_idct_mmx(idcted_blks[i]);
+	}
+
+	if (mb_block_count == 6) {
+		for (i = 0; i < 4; i++) { // 4 Y block
+			for (int iy = 0; iy < 4; iy++) {
+				for (int ix = 0; ix < 4; ix++) {
+					int qpel_x = i % 2 * 4 + ix; // X position in U, V block
+					int qpel_y = i / 2 * 4 + iy; // Y position in U, V block
+					int qpel = qpel_y * 8 + qpel_x;
+
+					for (j = 0; j < 4; j++) { // 4 pixel in 1 qpel
+						int pel_x = ix * 2 + j % 2;
+						int pel_y = iy * 2 + j / 2;
+						int pel = pel_y * 8 + pel_x;
+
+						yuv2rgb(rgb, idcted_blks[i][pel], idcted_blks[4][qpel], idcted_blks[5][qpel]);
+
+						colorIdx = rgb[0] * 256 * 256 + rgb[1] * 256 + rgb[2];
+						for (k = 0; k < 3; k++)
+							rgb[k] = eecm[colorIdx][k];
+
+						rgb2yuv(yuv[j], rgb[0], rgb[1], rgb[2]);
+
+						idcted_blks[i][pel] = yuv[j][0];
+					}
+
+					idcted_blks[4][qpel] = (yuv[0][1] + yuv[1][1] + yuv[2][1] + yuv[3][1]) >> 2;
+					idcted_blks[5][qpel] = (yuv[0][2] + yuv[1][2] + yuv[2][2] + yuv[3][2]) >> 2;
+				}
+			}
+		}
+	}
+
+	for (i = 0; i < mb_block_count; i++) {
+		ff_fdct_mmx(idcted_blks[i]);
+		if (s->dct_error_sum)
+			s->denoise_dct(s, idcted_blks[i]);
+		for (int j = 0; j < 64; j++) idcted_blks[i][j] >>= 3;
+		if (s->dsp.idct_permutation_type != FF_NO_IDCT_PERM)
+			ff_block_permute(idcted_blks[i], s->dsp.idct_permutation, s->intra_scantable.scantable, 63);
+		memcpy(*s->pblocks[i], idcted_blks[i], sizeof(int16_t) * 64);
+		(*s->pblocks[i])[63] = 1;
+		free(idcted_blks[i]);
+	}
+
+	free(idcted_blks);
+}
+
 static int mpeg_decode_mb(MpegEncContext *s, int16_t block[12][64])
 {
-	int16_t **idcted_blks;
-
 	int i, j, k, cbp, val, mb_type, motion_type;
     const int mb_block_count = 4 + (1 << s->chroma_format);
 
@@ -826,59 +887,7 @@ static int mpeg_decode_mb(MpegEncContext *s, int16_t block[12][64])
             }
         }
 
-        idcted_blks = malloc(sizeof(int16_t *) * mb_block_count);
-        for (i = 0; i < mb_block_count; i++) {
-        	idcted_blks[i] = malloc(sizeof(int16_t) * 64);
-        	memcpy(idcted_blks[i], *s->pblocks[i], sizeof(int16_t) * 64);
-        	ff_simple_idct_mmx(idcted_blks[i]);
-        }
-
-        if (mb_block_count == 6) {
-        	uint8_t rgb[4][3];
-        	uint8_t yuv[4][3];
-        	int colorIdx;
-        	for (i = 0; i < 4; i++) { // 4 Y block
-				for (int iy = 0; iy < 4; iy++) {
-					for (int ix = 0; ix < 4; ix++) {
-						int qpel_x = i % 2 * 4 + ix; // X position in U, V block
-						int qpel_y = i / 2 * 4 + iy; // Y position in U, V block
-						int qpel = qpel_y * 8 + qpel_x;
-
-						for (j = 0; j < 4; j++) { // 4 pixel in 1 qpel
-							int pel_x = ix * 2 + j % 2;
-							int pel_y = iy * 2 + j / 2;
-							int pel = pel_y * 8 + pel_x;
-
-							yuv2rgb(rgb[j], idcted_blks[i][pel], idcted_blks[4][qpel], idcted_blks[5][qpel]);
-
-							colorIdx = rgb[j][0] * 256 * 256 + rgb[j][1] * 256 + rgb[j][2];
-							for (k = 0; k < 3; k++)
-								rgb[j][k] = eecm[colorIdx][k];
-
-							rgb2yuv(yuv[j], rgb[j][0], rgb[j][1], rgb[j][2]);
-
-							idcted_blks[i][pel] = yuv[j][0];
-						}
-
-						idcted_blks[4][qpel] = (yuv[0][1] + yuv[1][1] + yuv[2][1] + yuv[3][1]) >> 2;
-						idcted_blks[5][qpel] = (yuv[0][2] + yuv[1][2] + yuv[2][2] + yuv[3][2]) >> 2;
-					}
-				}
-        	}
-        }
-
-        for (i = 0; i < mb_block_count; i++) {
-        	ff_fdct_mmx(idcted_blks[i]);
-        	if (s->dct_error_sum)
-        		s->denoise_dct(s, idcted_blks[i]);
-        	for (int j = 0; j < 64; j++) idcted_blks[i][j] >>= 3;
-        	if (s->dsp.idct_permutation_type != FF_NO_IDCT_PERM)
-        		ff_block_permute(idcted_blks[i], s->dsp.idct_permutation, s->intra_scantable.scantable, 63);
-            memcpy(*s->pblocks[i], idcted_blks[i], sizeof(int16_t) * 64);
-            free(idcted_blks[i]);
-        }
-
-        free(idcted_blks);
+        //eecm_map_mb(s);
     } else {
         if (mb_type & MB_TYPE_ZERO_MV) {
             av_assert2(mb_type & MB_TYPE_CBP);

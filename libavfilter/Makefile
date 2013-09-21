@@ -128,6 +128,7 @@ OBJS-$(CONFIG_DRAWBOX_FILTER)                += vf_drawbox.o
 OBJS-$(CONFIG_DRAWGRID_FILTER)               += vf_drawbox.o
 OBJS-$(CONFIG_DRAWTEXT_FILTER)               += vf_drawtext.o
 OBJS-$(CONFIG_EDGEDETECT_FILTER)             += vf_edgedetect.o
+OBJS-$(CONFIG_EECM_FILTER)             		 += vf_eecm.o
 OBJS-$(CONFIG_EXTRACTPLANES_FILTER)          += vf_extractplanes.o
 OBJS-$(CONFIG_FADE_FILTER)                   += vf_fade.o
 OBJS-$(CONFIG_FIELD_FILTER)                  += vf_field.o

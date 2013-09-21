@@ -167,7 +167,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
         uint8_t *dst = dstrow;
 
         for (j = 0; j < outlink->w * step; j += step) {
-            dst[j + roffset] = cb->lut[R][src[j + roffset]];
+        	dst[j + roffset] = cb->lut[R][src[j + roffset]];
             dst[j + goffset] = cb->lut[G][src[j + goffset]];
             dst[j + boffset] = cb->lut[B][src[j + boffset]];
             if (in != out && step == 4)
