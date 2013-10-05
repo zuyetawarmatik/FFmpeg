@@ -34,6 +34,9 @@
 #define A 3
 
 unsigned char eecm[COLOR_SPACE_SIZE][3];
+double rPower[256], gPower[256], bPower[256];
+double origColorPower, newColorPower;
+pthread_mutex_t lock1, lock2;
 
 typedef struct {
     const AVClass *class;
@@ -104,12 +107,21 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
         uint8_t *dst = dstrow;
 
         for (j = 0; j < outlink->w * step; j += step) {
+
+        	pthread_mutex_lock(&lock1);
+        		origColorPower += rPower[dst[j + roffset]] + gPower[dst[j + goffset]] + bPower[dst[j + boffset]];
+        	pthread_mutex_unlock(&lock1);
+
+#if 0
         	colorIdx = dst[j + roffset] * 256 * 256 + dst[j + goffset] * 256 + dst[j + boffset];
-        	//av_log(NULL, AV_LOG_INFO, "%d %d %d |", dst[j + roffset], dst[j + goffset], dst[j + boffset]);
-            dst[j + roffset] = eecm[colorIdx][0];
+        	dst[j + roffset] = eecm[colorIdx][0];
             dst[j + goffset] = eecm[colorIdx][1];
             dst[j + boffset] = eecm[colorIdx][2];
-            //av_log(NULL, AV_LOG_INFO, "%d %d %d \n", dst[j + roffset], dst[j + goffset], dst[j + boffset]);
+#endif
+            pthread_mutex_lock(&lock2);
+				newColorPower += rPower[dst[j + roffset]] + gPower[dst[j + goffset]] + bPower[dst[j + boffset]];
+			pthread_mutex_unlock(&lock2);
+
             if (in != out && step == 4)
                 dst[j + aoffset] = src[j + aoffset];
         }

@@ -44,6 +44,7 @@
 #include "thread.h"
 
 unsigned char eecm[COLOR_SPACE_SIZE][3];
+int ydarken;
 
 typedef struct Mpeg1Context {
     MpegEncContext mpeg_enc_ctx;
@@ -701,30 +702,45 @@ static inline void rgb2yuv(uint8_t *out, int R, int G, int B)
 	out[2] = ((112 * R -  94 * G -  18 * B + 128) >> 8) + 128;
 }
 
-static inline void eecm_map_mb(MpegEncContext *s) {
-	int i, j, k;
-	int16_t **idcted_blks;
-	uint8_t rgb[3];
-	uint8_t yuv[4][3];
+static inline void eecmYUV(uint8_t *yuvOut, int yIn, int uIn, int vIn)
+{
 	int colorIdx;
+	uint8_t rgb[3];
+	yuv2rgb(rgb, yIn, uIn, vIn);
+	colorIdx = (rgb[0] << 16) + (rgb[1] << 8) + rgb[2];
+	for (int k = 0; k < 3; k++)
+		rgb[k] = eecm[colorIdx][k];
+	rgb2yuv(yuvOut, rgb[0], rgb[1], rgb[2]);
+}
+
+static inline void alter_y_mb(MpegEncContext *s) {
+	int i;
+	for (i = 0; i < 4; i++) {
+		(*s->pblocks[i])[0] -= ydarken;
+	}
+}
+
+static inline void eecm_map_mb(MpegEncContext *s) {
+	int i, j;
+	int16_t **idcted_blks;
+	int ix, iy;
 
 	const int mb_block_count = 4 + (1 << s->chroma_format);
 
 	idcted_blks = malloc(sizeof(int16_t *) * mb_block_count);
 	for (i = 0; i < mb_block_count; i++) {
 		idcted_blks[i] = malloc(sizeof(int16_t) * 64);
-		if (s->dsp.idct_permutation_type != FF_NO_IDCT_PERM)
-			ff_block_permute(idcted_blks[i], s->dsp.idct_permutation, s->intra_scantable.scantable, 63);
 		memcpy(idcted_blks[i], *s->pblocks[i], sizeof(int16_t) * 64);
 		ff_simple_idct_mmx(idcted_blks[i]);
 	}
 
 	if (mb_block_count == 6) {
+		uint8_t yuv[4][3];
 		for (i = 0; i < 4; i++) { // 4 Y block
-			for (int iy = 0; iy < 4; iy++) {
-				for (int ix = 0; ix < 4; ix++) {
-					int qpel_x = i % 2 * 4 + ix; // X position in U, V block
-					int qpel_y = i / 2 * 4 + iy; // Y position in U, V block
+			for (iy = 0; iy < 4; iy++) {
+				for (ix = 0; ix < 4; ix++) {
+					int qpel_x = (i % 2) * 4 + ix; // X position in U, V block
+					int qpel_y = (i / 2) * 4 + iy; // Y position in U, V block
 					int qpel = qpel_y * 8 + qpel_x;
 
 					for (j = 0; j < 4; j++) { // 4 pixel in 1 qpel
@@ -732,19 +748,46 @@ static inline void eecm_map_mb(MpegEncContext *s) {
 						int pel_y = iy * 2 + j / 2;
 						int pel = pel_y * 8 + pel_x;
 
-						yuv2rgb(rgb, idcted_blks[i][pel], idcted_blks[4][qpel], idcted_blks[5][qpel]);
-
-						colorIdx = rgb[0] * 256 * 256 + rgb[1] * 256 + rgb[2];
-						for (k = 0; k < 3; k++)
-							rgb[k] = eecm[colorIdx][k];
-
-						rgb2yuv(yuv[j], rgb[0], rgb[1], rgb[2]);
+						eecmYUV(yuv[j], idcted_blks[i][pel], idcted_blks[4][qpel], idcted_blks[5][qpel]);
 
 						idcted_blks[i][pel] = yuv[j][0];
 					}
 
 					idcted_blks[4][qpel] = (yuv[0][1] + yuv[1][1] + yuv[2][1] + yuv[3][1]) >> 2;
 					idcted_blks[5][qpel] = (yuv[0][2] + yuv[1][2] + yuv[2][2] + yuv[3][2]) >> 2;
+				}
+			}
+		}
+	} else if (mb_block_count == 8) {
+		uint8_t yuv[2][3];
+		for (i = 0; i < 4; i++) {
+			for (iy = 0; iy < 8; iy++) {
+				for (ix = 0; ix < 4; ix++) {
+					int dpel_y = iy;
+					int dpel_x = ix + i % 2 * 4;
+					int dpel = dpel_y * 8 + dpel_x;
+					for (j = 0; j < 2; j++) {
+						int pel_y = iy;
+						int pel_x = ix * 2 + j;
+						int pel = pel_y * 8 + pel_x;
+						eecmYUV(yuv[j], idcted_blks[i][pel], idcted_blks[4 + i / 2][dpel], idcted_blks[6 + i / 2][dpel]);
+						idcted_blks[i][pel] = yuv[j][0];
+					}
+					idcted_blks[4 + i / 2][dpel] = (yuv[0][1] + yuv[1][1]) >> 1;
+					idcted_blks[6 + i / 2][dpel] = (yuv[0][2] + yuv[1][2]) >> 1;
+				}
+			}
+		}
+	} else if (mb_block_count == 12) {
+		uint8_t yuv[3];
+		for (i = 0; i < 4; i++) {
+			for (iy = 0; iy < 8; iy++) {
+				for (ix = 0; ix < 8; ix++) {
+					int pel = iy * 8 + ix;
+					eecmYUV(yuv, idcted_blks[i][pel], idcted_blks[i + 4][pel], idcted_blks[i + 8][pel]);
+					idcted_blks[i][pel] = yuv[0];
+					idcted_blks[i + 4][pel] = yuv[1];
+					idcted_blks[i + 8][pel] = yuv[2];
 				}
 			}
 		}
@@ -888,6 +931,7 @@ static int mpeg_decode_mb(MpegEncContext *s, int16_t block[12][64])
         }
 
         //eecm_map_mb(s);
+        if (ydarken > 0) alter_y_mb(s);
     } else {
         if (mb_type & MB_TYPE_ZERO_MV) {
             av_assert2(mb_type & MB_TYPE_CBP);

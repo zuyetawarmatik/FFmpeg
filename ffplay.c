@@ -339,6 +339,9 @@ static AVPacket flush_pkt;
 
 static SDL_Surface *screen;
 
+pthread_mutex_t lock1, lock2;
+int ydarken;
+
 unsigned char eecm[COLOR_SPACE_SIZE][3];
 static inline void readBinaryEECMData(void) {
 	unsigned char buffer[3];
@@ -353,6 +356,18 @@ static inline void readBinaryEECMData(void) {
 	}
 
 	fclose(pFile);
+}
+
+double rPower[256];
+double gPower[256];
+double bPower[256];
+double origColorPower, newColorPower;
+static inline void setupPowerModel(double rConstant, double gConstant, double bConstant) {
+	for (int i = 0; i < 256; i++) {
+		rPower[i] = rConstant * pow(i, 2.2);
+		gPower[i] = gConstant * pow(i, 2.2);
+		bPower[i] = bConstant * pow(i, 2.2);
+	}
 }
 
 static inline
@@ -1064,6 +1079,7 @@ static void do_exit(VideoState *is)
         printf("\n");
     SDL_Quit();
     av_log(NULL, AV_LOG_QUIET, "%s", "");
+    av_log(NULL, AV_LOG_INFO, "%lf %lf", origColorPower, newColorPower);
     exit(0);
 }
 
@@ -3463,6 +3479,7 @@ static const OptionDef options[] = {
     { "acodec", HAS_ARG | OPT_STRING | OPT_EXPERT, {    &audio_codec_name }, "force audio decoder",    "decoder_name" },
     { "scodec", HAS_ARG | OPT_STRING | OPT_EXPERT, { &subtitle_codec_name }, "force subtitle decoder", "decoder_name" },
     { "vcodec", HAS_ARG | OPT_STRING | OPT_EXPERT, {    &video_codec_name }, "force video decoder",    "decoder_name" },
+    { "ydarken", OPT_INT | HAS_ARG, { &ydarken }, "y darkening", "" },
     { NULL, },
 };
 
@@ -3529,7 +3546,11 @@ int main(int argc, char **argv)
     VideoState *is;
     char dummy_videodriver[] = "SDL_VIDEODRIVER=dummy";
 
+    pthread_mutex_init(&lock1, NULL);
+    pthread_mutex_init(&lock2, NULL);
+
 	readBinaryEECMData();
+	setupPowerModel(0.00000375322032, 0.00000568584939, 0.00000807388188);
 
     av_log_set_flags(AV_LOG_SKIP_REPEATED);
     parse_loglevel(argc, argv, options);
