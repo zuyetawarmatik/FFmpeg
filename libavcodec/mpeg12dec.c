@@ -45,6 +45,7 @@
 
 unsigned char eecm[COLOR_SPACE_SIZE][3];
 int ydarken;
+int alloweecmMPEG12;
 
 typedef struct Mpeg1Context {
     MpegEncContext mpeg_enc_ctx;
@@ -930,7 +931,7 @@ static int mpeg_decode_mb(MpegEncContext *s, int16_t block[12][64])
             }
         }
 
-        //eecm_map_mb(s);
+        if (alloweecmMPEG12) eecm_map_mb(s);
         if (ydarken > 0) alter_y_mb(s);
     } else {
         if (mb_type & MB_TYPE_ZERO_MV) {

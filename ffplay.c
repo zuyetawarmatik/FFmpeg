@@ -341,6 +341,7 @@ static SDL_Surface *screen;
 
 pthread_mutex_t lock1, lock2;
 int ydarken;
+int alloweecmMPEG12;
 
 unsigned char eecm[COLOR_SPACE_SIZE][3];
 static inline void readBinaryEECMData(void) {
@@ -3480,6 +3481,7 @@ static const OptionDef options[] = {
     { "scodec", HAS_ARG | OPT_STRING | OPT_EXPERT, { &subtitle_codec_name }, "force subtitle decoder", "decoder_name" },
     { "vcodec", HAS_ARG | OPT_STRING | OPT_EXPERT, {    &video_codec_name }, "force video decoder",    "decoder_name" },
     { "ydarken", OPT_INT | HAS_ARG, { &ydarken }, "y darkening", "" },
+    { "eecm", OPT_BOOL, { &alloweecmMPEG12 }, "eecm on mpeg 1/2", "" },
     { NULL, },
 };
 

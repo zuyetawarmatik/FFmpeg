@@ -23,5 +23,6 @@ extern double newColorPower;
 extern pthread_mutex_t lock1, lock2;
 
 extern int ydarken;
+extern int alloweecmMPEG12;
 
 #endif /* FFPLAY_H_ */
