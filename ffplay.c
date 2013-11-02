@@ -353,6 +353,7 @@ static inline void readBinaryEECMData(void) {
 		fread(buffer, 1, 3, pFile);
 		for (int j = 0; j < 3; j++) {
 			eecm[i][j] = buffer[j];
+			//av_log(NULL, AV_LOG_INFO, "%d %d %d %d ", i, buffer[0], buffer[1], buffer[2]);
 		}
 	}
 

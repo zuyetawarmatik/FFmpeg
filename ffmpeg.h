@@ -18,7 +18,7 @@
 
 #ifndef FFMPEG_H
 #define FFMPEG_H
-
+#include "ffplay.h"
 #include "config.h"
 
 #include <stdint.h>

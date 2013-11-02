@@ -156,6 +156,40 @@ int        nb_filtergraphs;
 
 #if HAVE_TERMIOS_H
 
+pthread_mutex_t lock1, lock2;
+int ydarken;
+int alloweecmMPEG12;
+
+unsigned char eecm[COLOR_SPACE_SIZE][3];
+static inline void readBinaryEECMData(void) {
+	unsigned char buffer[3];
+	FILE *pFile;
+	pFile = fopen("map.dat", "r+b");
+
+	for (int i = 0; i < COLOR_SPACE_SIZE; i++) {
+		fread(buffer, 1, 3, pFile);
+		for (int j = 0; j < 3; j++) {
+			eecm[i][j] = buffer[j];
+			//av_log(NULL, AV_LOG_INFO, "%d %d %d %d ", i, buffer[0], buffer[1], buffer[2]);
+		}
+	}
+
+	fclose(pFile);
+}
+
+double rPower[256];
+double gPower[256];
+double bPower[256];
+double origColorPower, newColorPower;
+static inline void setupPowerModel(double rConstant, double gConstant, double bConstant) {
+	for (int i = 0; i < 256; i++) {
+		rPower[i] = rConstant * pow(i, 2.2);
+		gPower[i] = gConstant * pow(i, 2.2);
+		bPower[i] = bConstant * pow(i, 2.2);
+	}
+}
+
+
 /* init terminal so that we can grab keys */
 static struct termios oldtty;
 static int restore_tty;
@@ -3360,6 +3394,11 @@ int main(int argc, char **argv)
     int64_t ti;
 
     register_exit(ffmpeg_cleanup);
+
+    pthread_mutex_init(&lock1, NULL);
+	pthread_mutex_init(&lock2, NULL);
+	readBinaryEECMData();
+	setupPowerModel(0.00000375322032, 0.00000568584939, 0.00000807388188);
 
     setvbuf(stderr,NULL,_IONBF,0); /* win32 runtime needs this */
 

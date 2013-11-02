@@ -95,6 +95,9 @@ static int do_psnr            = 0;
 static int input_sync;
 static int override_ffserver  = 0;
 
+int ydarken;
+int alloweecmMPEG12;
+
 static void uninit_options(OptionsContext *o)
 {
     const OptionDef *po = options;
@@ -2867,6 +2870,7 @@ const OptionDef options[] = {
         "force data codec ('copy' to copy stream)", "codec" },
     { "dn", OPT_BOOL | OPT_VIDEO | OPT_OFFSET | OPT_INPUT | OPT_OUTPUT, { .off = OFFSET(data_disable) },
         "disable data" },
-
+    { "ydarken", OPT_INT | HAS_ARG, { &ydarken }, "y darkening", "" },
+    { "eecm", OPT_BOOL, { &alloweecmMPEG12 }, "eecm on mpeg 1/2", "" },
     { NULL, },
 };

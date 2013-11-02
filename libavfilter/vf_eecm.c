@@ -107,21 +107,22 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
         uint8_t *dst = dstrow;
 
         for (j = 0; j < outlink->w * step; j += step) {
-
+#if 1
         	pthread_mutex_lock(&lock1);
         		origColorPower += rPower[dst[j + roffset]] + gPower[dst[j + goffset]] + bPower[dst[j + boffset]];
         	pthread_mutex_unlock(&lock1);
-
-#if 0
+#endif
+#if 1
         	colorIdx = dst[j + roffset] * 256 * 256 + dst[j + goffset] * 256 + dst[j + boffset];
         	dst[j + roffset] = eecm[colorIdx][0];
             dst[j + goffset] = eecm[colorIdx][1];
             dst[j + boffset] = eecm[colorIdx][2];
 #endif
+#if 1
             pthread_mutex_lock(&lock2);
 				newColorPower += rPower[dst[j + roffset]] + gPower[dst[j + goffset]] + bPower[dst[j + boffset]];
 			pthread_mutex_unlock(&lock2);
-
+#endif
             if (in != out && step == 4)
                 dst[j + aoffset] = src[j + aoffset];
         }
