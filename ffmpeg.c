@@ -22,7 +22,6 @@
  * @file
  * multimedia converter based on the FFmpeg libraries
  */
-
 #include "config.h"
 #include <ctype.h>
 #include <string.h>
