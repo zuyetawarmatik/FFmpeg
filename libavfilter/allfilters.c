@@ -134,6 +134,7 @@ void avfilter_register_all(void)
     REGISTER_FILTER(FPS,            fps,            vf);
     REGISTER_FILTER(FRAMESTEP,      framestep,      vf);
     REGISTER_FILTER(FREI0R,         frei0r,         vf);
+    REGISTER_FILTER(GAMMA,   		gamma,   		vf);
     REGISTER_FILTER(GEQ,            geq,            vf);
     REGISTER_FILTER(GRADFUN,        gradfun,        vf);
     REGISTER_FILTER(HALDCLUT,       haldclut,       vf);
@@ -165,6 +166,7 @@ void avfilter_register_all(void)
     REGISTER_FILTER(PERMS,          perms,          vf);
     REGISTER_FILTER(PERSPECTIVE,    perspective,    vf);
     REGISTER_FILTER(PIXDESCTEST,    pixdesctest,    vf);
+    REGISTER_FILTER(POWERCALC,   	powercalc,   	vf);
     REGISTER_FILTER(PP,             pp,             vf);
     REGISTER_FILTER(PSNR,           psnr,           vf);
     REGISTER_FILTER(REMOVELOGO,     removelogo,     vf);

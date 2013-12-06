@@ -33,29 +33,18 @@
 #define B 2
 #define A 3
 
+double colorPower;
+int frameCount;
+pthread_mutex_t lock1, lock2;
+
 typedef struct {
     const AVClass *class;
-    unsigned char eecm[COLOR_SPACE_SIZE][3];
+    double rPower[256], gPower[256], bPower[256];
     uint8_t rgba_map[4];
     int step;
-} EECMContext;
+} PowerCalcContext;
 
-#define OFFSET(x) offsetof(EECMContext, x)
-
-static void readBinaryEECMData(EECMContext *ctx) {
-	unsigned char buffer[3];
-	FILE *pFile;
-	pFile = fopen("map.dat", "r+b");
-
-	for (int i = 0; i < COLOR_SPACE_SIZE; i++) {
-		fread(buffer, 1, 3, pFile);
-		for (int j = 0; j < 3; j++) {
-			ctx->eecm[i][j] = buffer[j];
-		}
-	}
-
-	fclose(pFile);
-}
+#define OFFSET(x) offsetof(PowerCalcContext, x)
 
 static int query_formats(AVFilterContext *ctx)
 {
@@ -76,7 +65,7 @@ static int query_formats(AVFilterContext *ctx)
 static int config_output(AVFilterLink *outlink)
 {
     AVFilterContext *ctx = outlink->src;
-    EECMContext *cb = ctx->priv;
+    PowerCalcContext *cb = ctx->priv;
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(outlink->format);
 
     ff_fill_rgba_map(cb->rgba_map, outlink->format);
@@ -88,18 +77,16 @@ static int config_output(AVFilterLink *outlink)
 static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 {
     AVFilterContext *ctx = inlink->dst;
-    EECMContext *eecmctx = ctx->priv;
+    PowerCalcContext *powercalcctx = ctx->priv;
     AVFilterLink *outlink = ctx->outputs[0];
-    const uint8_t roffset = eecmctx->rgba_map[R];
-    const uint8_t goffset = eecmctx->rgba_map[G];
-    const uint8_t boffset = eecmctx->rgba_map[B];
-    const uint8_t aoffset = eecmctx->rgba_map[A];
-    const int step = eecmctx->step;
+    const uint8_t roffset = powercalcctx->rgba_map[R];
+    const uint8_t goffset = powercalcctx->rgba_map[G];
+    const uint8_t boffset = powercalcctx->rgba_map[B];
+    const int step = powercalcctx->step;
     const uint8_t *srcrow = in->data[0];
     uint8_t *dstrow;
     AVFrame *out;
     int i, j;
-    int colorIdx;
 
     if (av_frame_is_writable(in)) {
         out = in;
@@ -114,17 +101,12 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 
     dstrow = out->data[0];
     for (i = 0; i < outlink->h; i++) {
-        const uint8_t *src = srcrow;
         uint8_t *dst = dstrow;
 
         for (j = 0; j < outlink->w * step; j += step) {
-        	colorIdx = dst[j + roffset] * 256 * 256 + dst[j + goffset] * 256 + dst[j + boffset];
-        	dst[j + roffset] = eecmctx->eecm[colorIdx][0];
-            dst[j + goffset] = eecmctx->eecm[colorIdx][1];
-            dst[j + boffset] = eecmctx->eecm[colorIdx][2];
-
-            if (in != out && step == 4)
-                dst[j + aoffset] = src[j + aoffset];
+            pthread_mutex_lock(&lock1);
+				colorPower += powercalcctx->rPower[dst[j + roffset]] + powercalcctx->gPower[dst[j + goffset]] + powercalcctx->bPower[dst[j + boffset]];
+			pthread_mutex_unlock(&lock1);
         }
 
         srcrow += in->linesize[0];
@@ -133,16 +115,34 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 
     if (in != out)
         av_frame_free(&in);
+
+    pthread_mutex_lock(&lock2);
+    	frameCount++;
+    pthread_mutex_unlock(&lock2);
+
     return ff_filter_frame(ctx->outputs[0], out);
 }
 
 static av_cold int init(AVFilterContext *ctx)
 {
-	readBinaryEECMData(ctx->priv);
+	double rConstant = 0.00000375322032;
+	double gConstant = 0.00000568584939;
+	double bConstant = 0.00000807388188;
+    PowerCalcContext *powercalcctx = ctx->priv;
+
+    pthread_mutex_init(&lock1, NULL);
+    pthread_mutex_init(&lock2, NULL);
+
+	for (int i = 0; i < 256; i++) {
+		powercalcctx->rPower[i] = rConstant * pow(i, 2.2);
+		powercalcctx->gPower[i] = gConstant * pow(i, 2.2);
+		powercalcctx->bPower[i] = bConstant * pow(i, 2.2);
+	}
+
     return 0;
 }
 
-static const AVFilterPad eecm_inputs[] = {
+static const AVFilterPad powercalc_inputs[] = {
     {
         .name         = "default",
         .type         = AVMEDIA_TYPE_VIDEO,
@@ -151,7 +151,7 @@ static const AVFilterPad eecm_inputs[] = {
     { NULL }
 };
 
-static const AVFilterPad eecm_outputs[] = {
+static const AVFilterPad powercalc_outputs[] = {
     {
         .name         = "default",
         .type         = AVMEDIA_TYPE_VIDEO,
@@ -160,13 +160,13 @@ static const AVFilterPad eecm_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_eecm = {
-    .name          = "eecm",
+AVFilter avfilter_vf_powercalc = {
+    .name          = "powercalc",
     .description   = NULL_IF_CONFIG_SMALL("Mapping energy-efficient colors"),
-    .priv_size     = sizeof(EECMContext),
+    .priv_size     = sizeof(PowerCalcContext),
     .init          = init,
     .query_formats = query_formats,
-    .inputs        = eecm_inputs,
-    .outputs       = eecm_outputs,
+    .inputs        = powercalc_inputs,
+    .outputs       = powercalc_outputs,
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_GENERIC,
 };

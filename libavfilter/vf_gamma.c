@@ -18,8 +18,6 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include "../ffplay.h"
-
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 #include "avfilter.h"
@@ -35,27 +33,13 @@
 
 typedef struct {
     const AVClass *class;
-    unsigned char eecm[COLOR_SPACE_SIZE][3];
+    int gammaLUT[256];
+    float gamma;
     uint8_t rgba_map[4];
     int step;
-} EECMContext;
+} GammaContext;
 
-#define OFFSET(x) offsetof(EECMContext, x)
-
-static void readBinaryEECMData(EECMContext *ctx) {
-	unsigned char buffer[3];
-	FILE *pFile;
-	pFile = fopen("map.dat", "r+b");
-
-	for (int i = 0; i < COLOR_SPACE_SIZE; i++) {
-		fread(buffer, 1, 3, pFile);
-		for (int j = 0; j < 3; j++) {
-			ctx->eecm[i][j] = buffer[j];
-		}
-	}
-
-	fclose(pFile);
-}
+#define OFFSET(x) offsetof(GammaContext, x)
 
 static int query_formats(AVFilterContext *ctx)
 {
@@ -76,7 +60,7 @@ static int query_formats(AVFilterContext *ctx)
 static int config_output(AVFilterLink *outlink)
 {
     AVFilterContext *ctx = outlink->src;
-    EECMContext *cb = ctx->priv;
+    GammaContext *cb = ctx->priv;
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(outlink->format);
 
     ff_fill_rgba_map(cb->rgba_map, outlink->format);
@@ -88,18 +72,17 @@ static int config_output(AVFilterLink *outlink)
 static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 {
     AVFilterContext *ctx = inlink->dst;
-    EECMContext *eecmctx = ctx->priv;
+    GammaContext *gammactx = ctx->priv;
     AVFilterLink *outlink = ctx->outputs[0];
-    const uint8_t roffset = eecmctx->rgba_map[R];
-    const uint8_t goffset = eecmctx->rgba_map[G];
-    const uint8_t boffset = eecmctx->rgba_map[B];
-    const uint8_t aoffset = eecmctx->rgba_map[A];
-    const int step = eecmctx->step;
+    const uint8_t roffset = gammactx->rgba_map[R];
+    const uint8_t goffset = gammactx->rgba_map[G];
+    const uint8_t boffset = gammactx->rgba_map[B];
+    const uint8_t aoffset = gammactx->rgba_map[A];
+    const int step = gammactx->step;
     const uint8_t *srcrow = in->data[0];
     uint8_t *dstrow;
     AVFrame *out;
     int i, j;
-    int colorIdx;
 
     if (av_frame_is_writable(in)) {
         out = in;
@@ -118,10 +101,9 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
         uint8_t *dst = dstrow;
 
         for (j = 0; j < outlink->w * step; j += step) {
-        	colorIdx = dst[j + roffset] * 256 * 256 + dst[j + goffset] * 256 + dst[j + boffset];
-        	dst[j + roffset] = eecmctx->eecm[colorIdx][0];
-            dst[j + goffset] = eecmctx->eecm[colorIdx][1];
-            dst[j + boffset] = eecmctx->eecm[colorIdx][2];
+        	dst[j + roffset] = gammactx->gammaLUT[dst[j + roffset]];
+        	dst[j + goffset] = gammactx->gammaLUT[dst[j + goffset]];
+        	dst[j + boffset] = gammactx->gammaLUT[dst[j + boffset]];
 
             if (in != out && step == 4)
                 dst[j + aoffset] = src[j + aoffset];
@@ -138,11 +120,25 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 
 static av_cold int init(AVFilterContext *ctx)
 {
-	readBinaryEECMData(ctx->priv);
+    GammaContext *gammactx = ctx->priv;
+    float amountGamma = gammactx->gamma;
+
+    for (int i = 0; i < 256; i++)
+    	gammactx->gammaLUT[i] = (int) (255 * (pow((double) i / 255.0, amountGamma)));
+
     return 0;
 }
 
-static const AVFilterPad eecm_inputs[] = {
+#define FLAGS AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_VIDEO_PARAM
+
+static const AVOption gamma_options[] = {
+    { "value", "set gamma value", OFFSET(gamma), AV_OPT_TYPE_FLOAT, {.dbl=1.0}, 0, 10, .flags=FLAGS },
+    { NULL }
+};
+
+AVFILTER_DEFINE_CLASS(gamma);
+
+static const AVFilterPad gamma_inputs[] = {
     {
         .name         = "default",
         .type         = AVMEDIA_TYPE_VIDEO,
@@ -151,7 +147,7 @@ static const AVFilterPad eecm_inputs[] = {
     { NULL }
 };
 
-static const AVFilterPad eecm_outputs[] = {
+static const AVFilterPad gamma_outputs[] = {
     {
         .name         = "default",
         .type         = AVMEDIA_TYPE_VIDEO,
@@ -160,13 +156,14 @@ static const AVFilterPad eecm_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_eecm = {
-    .name          = "eecm",
-    .description   = NULL_IF_CONFIG_SMALL("Mapping energy-efficient colors"),
-    .priv_size     = sizeof(EECMContext),
+AVFilter avfilter_vf_gamma = {
+    .name          = "gamma",
+    .description   = NULL_IF_CONFIG_SMALL("Gamma darken"),
+    .priv_size     = sizeof(GammaContext),
     .init          = init,
     .query_formats = query_formats,
-    .inputs        = eecm_inputs,
-    .outputs       = eecm_outputs,
+    .inputs        = gamma_inputs,
+    .outputs       = gamma_outputs,
+    .priv_class    = &gamma_class,
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_GENERIC,
 };
