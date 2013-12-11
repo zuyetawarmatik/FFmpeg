@@ -44,9 +44,12 @@
 #include "thread.h"
 
 unsigned char eecm[COLOR_SPACE_SIZE][3]; int isEECMSetup;
-int gammaLUT[256]; int isGammaLUTSetup;
+unsigned char gammaLUT[256]; int isGammaLUTSetup;
+unsigned char rdarkenLUT[256]; int isRDarkenLUTSetup;
 
 int amountYDarken;
+int amountSDarken; int sdarkenAdaptive;
+double amountRDarken;
 double amountGamma;
 int allowEECM;
 
@@ -726,6 +729,30 @@ static inline void gammaYUV(uint8_t *yuvOut, int yIn, int uIn, int vIn)
 	rgb2yuv(yuvOut, rgb[0], rgb[1], rgb[2]);
 }
 
+static inline void rdarkenYUV(uint8_t *yuvOut, int yIn, int uIn, int vIn)
+{
+	uint8_t rgb[3];
+	yuv2rgb(rgb, yIn, uIn, vIn);
+	for (int k = 0; k < 3; k++)
+		rgb[k] = rdarkenLUT[rgb[k]];
+	rgb2yuv(yuvOut, rgb[0], rgb[1], rgb[2]);
+}
+
+static inline void sdarkenYUV(uint8_t *yuvOut, int yIn, int uIn, int vIn)
+{
+	uint8_t rgb[3];
+	yuv2rgb(rgb, yIn, uIn, vIn);
+	for (int k = 0; k < 3; k++) {
+		int r;
+		if (sdarkenAdaptive) r = rgb[k] - amountSDarken * rgb[k] / 255.0;
+		else r = rgb[k] - amountSDarken;
+		if (r < 0) r = 0;
+		rgb[k] = r;
+	}
+	rgb2yuv(yuvOut, rgb[0], rgb[1], rgb[2]);
+}
+
+
 static inline void readBinaryEECMData(void) {
 	unsigned char buffer[3];
 	FILE *pFile;
@@ -744,10 +771,19 @@ static inline void readBinaryEECMData(void) {
 static inline void setupGammaLUT(void)
 {
     for (int i = 0; i < 256; i++)
-        gammaLUT[i] = (int) (255 * (pow((double) i / 255.0, amountGamma)));
+        gammaLUT[i] = (unsigned char) (255 * (pow((double) i / 255.0, amountGamma)));
 }
 
-static inline void gamma_mb(MpegEncContext *s) {
+static inline void setupRDarkenLUT(void)
+{
+    for (int i = 0; i < 256; i++) {
+        int r = i - (unsigned char) ((double) i * amountRDarken / 100.0);
+        if (r < 0) r = 0;
+        rdarkenLUT[i] = r;
+    }
+}
+
+static inline void filter_mb(MpegEncContext *s, void (*f)(uint8_t*, int, int, int)) {
 	int i, j;
 	int16_t **idcted_blks;
 	int ix, iy;
@@ -774,9 +810,7 @@ static inline void gamma_mb(MpegEncContext *s) {
 						int pel_x = ix * 2 + j % 2;
 						int pel_y = iy * 2 + j / 2;
 						int pel = pel_y * 8 + pel_x;
-
-						gammaYUV(yuv[j], idcted_blks[i][pel], idcted_blks[4][qpel], idcted_blks[5][qpel]);
-
+						f(yuv[j], idcted_blks[i][pel], idcted_blks[4][qpel], idcted_blks[5][qpel]);
 						idcted_blks[i][pel] = yuv[j][0];
 					}
 
@@ -797,7 +831,7 @@ static inline void gamma_mb(MpegEncContext *s) {
 						int pel_y = iy;
 						int pel_x = ix * 2 + j;
 						int pel = pel_y * 8 + pel_x;
-						gammaYUV(yuv[j], idcted_blks[i][pel], idcted_blks[4 + i / 2][dpel], idcted_blks[6 + i / 2][dpel]);
+						f(yuv[j], idcted_blks[i][pel], idcted_blks[4 + i / 2][dpel], idcted_blks[6 + i / 2][dpel]);
 						idcted_blks[i][pel] = yuv[j][0];
 					}
 					idcted_blks[4 + i / 2][dpel] = (yuv[0][1] + yuv[1][1]) >> 1;
@@ -811,7 +845,7 @@ static inline void gamma_mb(MpegEncContext *s) {
 			for (iy = 0; iy < 8; iy++) {
 				for (ix = 0; ix < 8; ix++) {
 					int pel = iy * 8 + ix;
-					gammaYUV(yuv, idcted_blks[i][pel], idcted_blks[i + 4][pel], idcted_blks[i + 8][pel]);
+					f(yuv, idcted_blks[i][pel], idcted_blks[i + 4][pel], idcted_blks[i + 8][pel]);
 					idcted_blks[i][pel] = yuv[0];
 					idcted_blks[i + 4][pel] = yuv[1];
 					idcted_blks[i + 8][pel] = yuv[2];
@@ -833,6 +867,22 @@ static inline void gamma_mb(MpegEncContext *s) {
 	}
 
 	free(idcted_blks);
+}
+
+static inline void gamma_mb(MpegEncContext *s) {
+	filter_mb(s, gammaYUV);
+}
+
+static inline void eecm_map_mb(MpegEncContext *s) {
+	filter_mb(s, eecmYUV);
+}
+
+static inline void rdarken_mb(MpegEncContext *s) {
+	filter_mb(s, rdarkenYUV);
+}
+
+static inline void sdarken_mb(MpegEncContext *s) {
+	filter_mb(s, sdarkenYUV);
 }
 
 static inline void alter_y_mb(MpegEncContext *s) {
@@ -840,94 +890,6 @@ static inline void alter_y_mb(MpegEncContext *s) {
 	for (i = 0; i < 4; i++) {
 		(*s->pblocks[i])[0] -= amountYDarken;
 	}
-}
-
-static inline void eecm_map_mb(MpegEncContext *s) {
-	int i, j;
-	int16_t **idcted_blks;
-	int ix, iy;
-
-	const int mb_block_count = 4 + (1 << s->chroma_format);
-
-	idcted_blks = malloc(sizeof(int16_t *) * mb_block_count);
-	for (i = 0; i < mb_block_count; i++) {
-		idcted_blks[i] = malloc(sizeof(int16_t) * 64);
-		memcpy(idcted_blks[i], *s->pblocks[i], sizeof(int16_t) * 64);
-		ff_simple_idct_mmx(idcted_blks[i]);
-	}
-
-	if (mb_block_count == 6) {
-		uint8_t yuv[4][3];
-		for (i = 0; i < 4; i++) { // 4 Y block
-			for (iy = 0; iy < 4; iy++) {
-				for (ix = 0; ix < 4; ix++) {
-					int qpel_x = (i % 2) * 4 + ix; // X position in U, V block
-					int qpel_y = (i / 2) * 4 + iy; // Y position in U, V block
-					int qpel = qpel_y * 8 + qpel_x;
-
-					for (j = 0; j < 4; j++) { // 4 pixel in 1 qpel
-						int pel_x = ix * 2 + j % 2;
-						int pel_y = iy * 2 + j / 2;
-						int pel = pel_y * 8 + pel_x;
-
-						eecmYUV(yuv[j], idcted_blks[i][pel], idcted_blks[4][qpel], idcted_blks[5][qpel]);
-
-						idcted_blks[i][pel] = yuv[j][0];
-					}
-
-					idcted_blks[4][qpel] = (yuv[0][1] + yuv[1][1] + yuv[2][1] + yuv[3][1]) >> 2;
-					idcted_blks[5][qpel] = (yuv[0][2] + yuv[1][2] + yuv[2][2] + yuv[3][2]) >> 2;
-				}
-			}
-		}
-	} else if (mb_block_count == 8) {
-		uint8_t yuv[2][3];
-		for (i = 0; i < 4; i++) {
-			for (iy = 0; iy < 8; iy++) {
-				for (ix = 0; ix < 4; ix++) {
-					int dpel_y = iy;
-					int dpel_x = ix + i % 2 * 4;
-					int dpel = dpel_y * 8 + dpel_x;
-					for (j = 0; j < 2; j++) {
-						int pel_y = iy;
-						int pel_x = ix * 2 + j;
-						int pel = pel_y * 8 + pel_x;
-						eecmYUV(yuv[j], idcted_blks[i][pel], idcted_blks[4 + i / 2][dpel], idcted_blks[6 + i / 2][dpel]);
-						idcted_blks[i][pel] = yuv[j][0];
-					}
-					idcted_blks[4 + i / 2][dpel] = (yuv[0][1] + yuv[1][1]) >> 1;
-					idcted_blks[6 + i / 2][dpel] = (yuv[0][2] + yuv[1][2]) >> 1;
-				}
-			}
-		}
-	} else if (mb_block_count == 12) {
-		uint8_t yuv[3];
-		for (i = 0; i < 4; i++) {
-			for (iy = 0; iy < 8; iy++) {
-				for (ix = 0; ix < 8; ix++) {
-					int pel = iy * 8 + ix;
-					eecmYUV(yuv, idcted_blks[i][pel], idcted_blks[i + 4][pel], idcted_blks[i + 8][pel]);
-					idcted_blks[i][pel] = yuv[0];
-					idcted_blks[i + 4][pel] = yuv[1];
-					idcted_blks[i + 8][pel] = yuv[2];
-				}
-			}
-		}
-	}
-
-	for (i = 0; i < mb_block_count; i++) {
-		ff_fdct_mmx(idcted_blks[i]);
-		if (s->dct_error_sum)
-			s->denoise_dct(s, idcted_blks[i]);
-		for (int j = 0; j < 64; j++) idcted_blks[i][j] >>= 3;
-		if (s->dsp.idct_permutation_type != FF_NO_IDCT_PERM)
-			ff_block_permute(idcted_blks[i], s->dsp.idct_permutation, s->intra_scantable.scantable, 63);
-		memcpy(*s->pblocks[i], idcted_blks[i], sizeof(int16_t) * 64);
-		(*s->pblocks[i])[63] = 1;
-		free(idcted_blks[i]);
-	}
-
-	free(idcted_blks);
 }
 
 static int mpeg_decode_mb(MpegEncContext *s, int16_t block[12][64])
@@ -1057,6 +1019,11 @@ static int mpeg_decode_mb(MpegEncContext *s, int16_t block[12][64])
         	eecm_map_mb(s);
         }
         if (amountYDarken > 0) alter_y_mb(s);
+        if (amountSDarken > 0) sdarken_mb(s);
+        if (amountRDarken > 0.0 && amountRDarken <= 100.0) {
+        	if (!isRDarkenLUTSetup) {setupRDarkenLUT(); isRDarkenLUTSetup = 1;}
+        	rdarken_mb(s);
+        }
         if (amountGamma != 0.0 && amountGamma != 1.0) {
         	if (!isGammaLUTSetup) {setupGammaLUT(); isGammaLUTSetup = 1;}
         	gamma_mb(s);

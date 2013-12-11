@@ -17,7 +17,9 @@ extern int frameCount;
 extern pthread_mutex_t lock1, lock2;
 
 extern int amountYDarken;
-extern int allowEECM;
+extern int amountSDarken; extern int sdarkenAdaptive;
+extern double amountRDarken;
 extern double amountGamma;
+extern int allowEECM;
 
 #endif /* FFPLAY_H_ */

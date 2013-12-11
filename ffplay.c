@@ -339,13 +339,6 @@ static AVPacket flush_pkt;
 
 static SDL_Surface *screen;
 
-int amountYDarken;
-double amountGamma;
-int allowEECM;
-
-double colorPower;
-int frameCount;
-
 static inline
 int cmp_audio_fmts(enum AVSampleFormat fmt1, int64_t channel_count1,
                    enum AVSampleFormat fmt2, int64_t channel_count2)
@@ -3456,8 +3449,11 @@ static const OptionDef options[] = {
     { "scodec", HAS_ARG | OPT_STRING | OPT_EXPERT, { &subtitle_codec_name }, "force subtitle decoder", "decoder_name" },
     { "vcodec", HAS_ARG | OPT_STRING | OPT_EXPERT, {    &video_codec_name }, "force video decoder",    "decoder_name" },
     { "ydarken", OPT_INT | HAS_ARG, { &amountYDarken }, "y darkening", "" },
+    { "sdarken", OPT_INT | HAS_ARG, { &amountSDarken }, "simple darkening", "" },
     { "gdarken", OPT_DOUBLE | HAS_ARG, { &amountGamma }, "gamma darkening", "" },
+    { "rdarken", OPT_DOUBLE | HAS_ARG, { &amountRDarken }, "relative darkening", "" },
     { "eecm", OPT_BOOL, { &allowEECM }, "eecm on mpeg 1/2", "" },
+    { "sda", OPT_BOOL, { &sdarkenAdaptive }, "simple darkening adaptive", "" },
     { NULL, },
 };
 

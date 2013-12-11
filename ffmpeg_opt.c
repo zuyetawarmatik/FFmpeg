@@ -85,7 +85,6 @@ int qp_hist           = 0;
 int stdin_interaction = 1;
 int frame_bits_per_raw_sample = 0;
 
-
 static int intra_only         = 0;
 static int file_overwrite     = 0;
 static int no_file_overwrite  = 0;
@@ -94,10 +93,6 @@ static int intra_dc_precision = 8;
 static int do_psnr            = 0;
 static int input_sync;
 static int override_ffserver  = 0;
-
-int amountYDarken;
-double amountGamma;
-int allowEECM;
 
 static void uninit_options(OptionsContext *o)
 {
@@ -2872,7 +2867,10 @@ const OptionDef options[] = {
     { "dn", OPT_BOOL | OPT_VIDEO | OPT_OFFSET | OPT_INPUT | OPT_OUTPUT, { .off = OFFSET(data_disable) },
         "disable data" },
     { "ydarken", OPT_INT | HAS_ARG, { &amountYDarken }, "y darkening", "" },
+    { "sdarken", OPT_INT | HAS_ARG, { &amountSDarken }, "simple darkening", "" },
     { "gdarken", OPT_DOUBLE | HAS_ARG, { &amountGamma }, "gamma darkening", "" },
+    { "rdarken", OPT_DOUBLE | HAS_ARG, { &amountRDarken }, "relative darkening", "" },
     { "eecm", OPT_BOOL, { &allowEECM }, "eecm on mpeg 1/2", "" },
+    { "sda", OPT_BOOL, { &sdarkenAdaptive }, "simple darkening adaptive", "" },
     { NULL, },
 };

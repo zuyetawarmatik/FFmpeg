@@ -33,7 +33,7 @@
 
 typedef struct {
     const AVClass *class;
-    int gammaLUT[256];
+    unsigned char gammaLUT[256];
     float gamma;
     uint8_t rgba_map[4];
     int step;
@@ -124,7 +124,7 @@ static av_cold int init(AVFilterContext *ctx)
     float amountGamma = gammactx->gamma;
 
     for (int i = 0; i < 256; i++)
-    	gammactx->gammaLUT[i] = (int) (255 * (pow((double) i / 255.0, amountGamma)));
+    	gammactx->gammaLUT[i] = (unsigned char) (255 * (pow((double) i / 255.0, amountGamma)));
 
     return 0;
 }
