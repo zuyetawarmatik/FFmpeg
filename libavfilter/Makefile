@@ -140,6 +140,7 @@ OBJS-$(CONFIG_FRAMESTEP_FILTER)              += vf_framestep.o
 OBJS-$(CONFIG_FPS_FILTER)                    += vf_fps.o
 OBJS-$(CONFIG_FREI0R_FILTER)                 += vf_frei0r.o
 OBJS-$(CONFIG_GAMMA_FILTER)              	 += vf_gamma.o
+OBJS-$(CONFIG_GAMMAADT_FILTER)   		     += vf_gammaadt.o
 OBJS-$(CONFIG_GEQ_FILTER)                    += vf_geq.o
 OBJS-$(CONFIG_GRADFUN_FILTER)                += vf_gradfun.o
 OBJS-$(CONFIG_HALDCLUT_FILTER)               += vf_lut3d.o dualinput.o
